@@ -11,8 +11,18 @@
   <body>
     <div class="container">
       <div class="header">
-        <h1>CGPA Calculator</h1>
-        <p>Calculate your Cumulative Grade Point Average with ease</p>
+        <div class="title-block">
+          <h1>📊 CGPA Calculator</h1>
+        </div>
+
+        <div class="fab-toolbar" aria-hidden="false">
+          <div class="fab save" title="Save data (Ctrl+S)" onclick="saveCGPA()">💾</div>
+          <div class="fab load" title="Load data" onclick="document.getElementById('loadFile').click()">📁
+          </div>
+          <div class="fab pdf" title="Export PDF" onclick="exportToPDF()">📄</div>
+          <div class="fab img" title="Export Image" onclick="exportToImage()">🖼️</div>
+          <div class="fab clear" title="Clear all" onclick="clearAll()">🗑️</div>
+        </div>
       </div>
 
       <div class="main-content">
