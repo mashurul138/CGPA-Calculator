@@ -8,8 +8,11 @@ document.addEventListener("DOMContentLoaded", function () {
   populateDatalist();
 
   const courseNameEl = document.getElementById("courseName");
+  const semesterEl = document.getElementById("semester");
   const retakeCheckbox = document.getElementById("retake");
   const retakeSection = document.getElementById("retakeSection");
+
+  semesterEl.focus();
 
   courseNameEl.addEventListener("blur", function () {
     checkAndAutoFill();
@@ -57,6 +60,7 @@ function checkAndAutoFill() {
     const course = courses[idx];
     document.getElementById("credits").value = String(course.credits);
     document.getElementById("gpa").value = "";
+    document.getElementById("semester").value = String(course.semester || "");
     document.getElementById("retake").checked = true;
 
     const highestGpa = getHighestGpaForCourse(name);
@@ -86,12 +90,14 @@ function findCourseByName(name) {
 
 function addCourse() {
   const courseNameEl = document.getElementById("courseName");
+  const semesterEl = document.getElementById("semester");
   const creditsEl = document.getElementById("credits");
   const gpaEl = document.getElementById("gpa");
   const retakeEl = document.getElementById("retake");
   const previousGpaEl = document.getElementById("previousGpa");
 
   const courseName = courseNameEl.value.trim();
+  const semester = semesterEl.value.trim();
   const credits = parseFloat(creditsEl.value);
   const gpa = parseFloat(gpaEl.value);
   const retake = !!retakeEl.checked;
@@ -99,12 +105,13 @@ function addCourse() {
   const previousGpa = prevGpaRaw === "" ? null : parseFloat(prevGpaRaw);
 
   if (!courseName) { alert("Please enter a course name."); courseNameEl.focus(); return; }
+  if (!semester) { alert("Please enter a semester."); semesterEl.focus(); return; }
   if (isNaN(credits) || credits <= 0) { alert("Please enter valid credits (greater than 0)."); creditsEl.focus(); return; }
   if (isNaN(gpa) || gpa < 0 || gpa > 4) { alert("Please enter a valid GPA between 0 and 4."); gpaEl.focus(); return; }
   if (retake && previousGpa !== null && (isNaN(previousGpa) || previousGpa < 0 || previousGpa > 4)) { alert("Please enter a valid previous GPA between 0 and 4 for retake."); previousGpaEl.focus(); return; }
 
   const gradePoints = credits * gpa;
-  const course = { name: courseName, credits: credits, gpa: gpa, gradePoints: gradePoints, retake: retake, previousGpa: previousGpa };
+  const course = { name: courseName, semester: semester, credits: credits, gpa: gpa, gradePoints: gradePoints, retake: retake, previousGpa: previousGpa };
 
   if (editingIndex >= 0) {
     courses[editingIndex] = course;
@@ -118,7 +125,7 @@ function addCourse() {
   saveToStorage();
   clearForm();
   populateDatalist();
-  courseNameEl.focus();
+  semesterEl.focus();
 }
 
 function clearForm() {
@@ -135,6 +142,7 @@ function editCourse(index) {
   editingIndex = index;
   const course = courses[index];
   document.getElementById("courseName").value = course.name;
+  document.getElementById("semester").value = course.semester || "";
   document.getElementById("credits").value = String(course.credits);
   document.getElementById("gpa").value = String(course.gpa);
   document.getElementById("retake").checked = !!course.retake;
@@ -190,6 +198,35 @@ function processCoursesForCalculation() {
   return { countedIndices: chosen, processedRows };
 }
 
+function calculateSemesterGpas(countedIndices) {
+  const semesterTotals = new Map();
+
+  courses.forEach((course, idx) => {
+    if (!countedIndices.has(idx)) return;
+    const semester = getSemesterLabel(course.semester);
+    if (!semesterTotals.has(semester)) {
+      semesterTotals.set(semester, { credits: 0, gradePoints: 0 });
+    }
+
+    const totals = semesterTotals.get(semester);
+    const credits = Number(course.credits) || 0;
+    totals.credits += credits;
+    totals.gradePoints += Number(course.gradePoints) || (credits * (Number(course.gpa) || 0));
+  });
+
+  const semesterGpas = new Map();
+  semesterTotals.forEach((totals, semester) => {
+    semesterGpas.set(semester, totals.credits > 0 ? totals.gradePoints / totals.credits : 0);
+  });
+
+  return semesterGpas;
+}
+
+function getSemesterLabel(semester) {
+  const value = String(semester || "").trim();
+  return value || "Unassigned";
+}
+
 function updateDisplay(markNew = false) {
   const tableBody = document.getElementById("tableBody");
   const emptyState = document.getElementById("emptyState");
@@ -231,37 +268,57 @@ function updateDisplay(markNew = false) {
   document.getElementById("totalCredits").textContent = totalCredits.toFixed(1);
   document.getElementById("avgGPA").textContent = avgGPA.toFixed(2);
 
-  tableBody.innerHTML = processedRows.map((row) => {
+  const semesterGpas = calculateSemesterGpas(countedIndices);
+  const semesterGroups = Array.from(processedRows.reduce((groups, row) => {
+    const semester = getSemesterLabel(row.course.semester);
+    if (!groups.has(semester)) groups.set(semester, []);
+    groups.get(semester).push(row);
+    return groups;
+  }, new Map()).entries());
+
+  tableBody.innerHTML = semesterGroups.map(([semester, rows]) => rows.map((row, rowIndex) => {
     const course = row.course;
     const counted = row.counted;
     const nameSafe = escapeHtml(String(course.name));
+    const semesterSafe = escapeHtml(semester);
     const creditsSafe = (Number(course.credits) || 0).toFixed(1);
     const gpaSafe = (Number(course.gpa) || 0).toFixed(2);
     const gpSafe = (Number(course.gradePoints) || ((Number(course.credits) || 0) * (Number(course.gpa) || 0))).toFixed(2);
+    const sgpaSafe = semesterGpas.has(semester) ? semesterGpas.get(semester).toFixed(2) : "0.00";
+    const sgpaCell = rowIndex === 0 ? `<td class="sgpa-cell" rowspan="${rows.length}">${sgpaSafe}</td>` : "";
     const retakeLabel = course.retake ? `<span class="badge">Yes</span><div class="muted" style="margin-top:4px;">Prev: ${course.previousGpa !== null && course.previousGpa !== undefined ? Number(course.previousGpa).toFixed(2) : '—'}</div>` : `<span class="badge">No</span>`;
     const excludedNote = counted ? '' : `<div class="muted" style="margin-top:6px;">(Excluded)</div>`;
 
     return `<tr class="${counted ? '' : 'row-excluded'}" data-row-index="${row.index}">
+            <td>${semesterSafe}</td>
             <td>${nameSafe}${excludedNote}</td>
             <td>${creditsSafe}</td>
             <td>${gpaSafe}</td>
             <td>${gpSafe}</td>
+            ${sgpaCell}
             <td>${retakeLabel}</td>
             <td class="actions">
               <button class="btn btn-action btn-small" onclick="editCourse(${row.index})">Edit</button>
               <button class="btn btn-danger btn-small" onclick="deleteCourse(${row.index})">Delete</button>
             </td>
         </tr>`;
-  }).join("");
+  }).join("")).join("");
 
   populateDatalist();
 }
 
 function populateDatalist() {
   const dl = document.getElementById("courseList");
-  if (!dl) return;
-  const unique = Array.from(new Set(courses.map(c => String(c.name || "")))).filter(Boolean).sort((a, b) => a.localeCompare(b));
-  dl.innerHTML = unique.map(n => `<option value="${escapeHtml(n)}"></option>`).join("");
+  if (dl) {
+    const unique = Array.from(new Set(courses.map(c => String(c.name || "")))).filter(Boolean).sort((a, b) => a.localeCompare(b));
+    dl.innerHTML = unique.map(n => `<option value="${escapeHtml(n)}"></option>`).join("");
+  }
+
+  const semesterList = document.getElementById("semesterList");
+  if (semesterList) {
+    const semesters = Array.from(new Set(courses.map(c => getSemesterLabel(c.semester)))).filter(Boolean).sort((a, b) => a.localeCompare(b));
+    semesterList.innerHTML = semesters.map(s => `<option value="${escapeHtml(s)}"></option>`).join("");
+  }
 }
 
 function saveToStorage() {
@@ -313,6 +370,7 @@ function loadCGPA(event) {
       if (data.courses && Array.isArray(data.courses)) {
         courses = data.courses.map(c => ({
           name: String(c.name || ""),
+          semester: getSemesterLabel(c.semester),
           credits: Number(c.credits) || 0,
           gpa: Number(c.gpa) || 0,
           gradePoints: Number(c.gradePoints) || ((Number(c.credits) || 0) * (Number(c.gpa) || 0)),
@@ -360,25 +418,38 @@ async function exportToPDF() {
 
     let y = 140;
     doc.setFontSize(10); doc.setFont(undefined, "bold");
-    doc.text("Course Name", margin, y);
-    doc.text("Credits", margin + 240, y);
-    doc.text("GPA", margin + 310, y);
-    doc.text("Grade Points", margin + 360, y);
-    doc.text("Retake", margin + 450, y);
+    doc.text("Semester", margin, y);
+    doc.text("Course Name", margin + 110, y);
+    doc.text("Credits", margin + 270, y);
+    doc.text("GPA", margin + 325, y);
+    doc.text("Points", margin + 370, y);
+    doc.text("SGPA", margin + 430, y);
+    doc.text("Retake", margin + 475, y);
     doc.line(margin, y + 4, pageWidth - margin, y + 4);
     y += lineHeight;
     doc.setFont(undefined, "normal");
+
+    const { countedIndices } = processCoursesForCalculation();
+    const semesterGpas = calculateSemesterGpas(countedIndices);
+    const displayedSgpaSemesters = new Set();
 
     for (let i = 0; i < courses.length; i++) {
       const c = courses[i];
       if (y > pageHeight - margin - 40) { doc.addPage(); y = margin + 40; }
       const name = String(c.name || "");
-      const clipped = name.length > 40 ? name.substring(0, 37) + "..." : name;
-      doc.text(clipped, margin, y);
-      doc.text(String(Number(c.credits).toFixed(1)), margin + 240, y);
-      doc.text(String(Number(c.gpa).toFixed(2)), margin + 310, y);
-      doc.text(String(Number(c.gradePoints || (c.credits * c.gpa)).toFixed(2)), margin + 360, y);
-      doc.text(c.retake ? "Yes" : "No", margin + 450, y);
+      const semester = getSemesterLabel(c.semester);
+      const clipped = name.length > 28 ? name.substring(0, 25) + "..." : name;
+      const clippedSemester = semester.length > 16 ? semester.substring(0, 13) + "..." : semester;
+      const shouldShowSgpa = !displayedSgpaSemesters.has(semester);
+      const sgpa = shouldShowSgpa && semesterGpas.has(semester) ? semesterGpas.get(semester).toFixed(2) : "";
+      displayedSgpaSemesters.add(semester);
+      doc.text(clippedSemester, margin, y);
+      doc.text(clipped, margin + 110, y);
+      doc.text(String(Number(c.credits).toFixed(1)), margin + 270, y);
+      doc.text(String(Number(c.gpa).toFixed(2)), margin + 325, y);
+      doc.text(String(Number(c.gradePoints || (c.credits * c.gpa)).toFixed(2)), margin + 370, y);
+      doc.text(sgpa, margin + 430, y);
+      doc.text(c.retake ? "Yes" : "No", margin + 475, y);
       y += lineHeight;
     }
 
