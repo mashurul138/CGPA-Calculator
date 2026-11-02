@@ -17,13 +17,14 @@
    The browser detects the SW script change, installs the new worker, and
    the activate handler below wipes the old cache automatically.
 ─────────────────────────────────────────────────────────────────────────── */
-const CACHE_VERSION = "cgpa-v1";
+const CACHE_VERSION = "cgpa-v3";
 
 /* ─── Assets to pre-cache on install ────────────────────────────────────── */
 const PRECACHE_ASSETS = [
   "./",
   "./index.html",
   "./style.css",
+  "./calc.js",
   "./script.js",
   "./manifest.json",
   "./libs/html2canvas.min.js",
